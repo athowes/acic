@@ -1,4 +1,4 @@
-#' Start by installing the aciccomp2016 R package from Github
+##' Start by installing the aciccomp2016 R package from Github
 if (require("remotes", quietly = TRUE) == FALSE) {
   install.packages("remotes")
   require("remotes")
