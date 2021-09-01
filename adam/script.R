@@ -15,7 +15,8 @@ library(tidyverse)
 
 #' The 87th dataset simulated from the 50th setting
 df <- dgp_2016(input_2016, 50, 87) %>%
-  as_tibble()
+  as_tibble() %>%
+  bind_cols(input_2016)
 
 #' The columns of df are:
 #' * z: the treatment indicator
@@ -57,8 +58,12 @@ df %>%
 
 dev.off()
 
+#' Remove the columns that I shouldn't have access to
+df <- df %>%
+  select(-y.0, -y.1, -mu.0, -mu.1, -e)
+
 #' 1. Regression adjustment
-fit <- glm(y ~ 1 + z, family = "gaussian", data = df)
+fit <- glm(y ~ 1 + ., family = "gaussian", data = df)
 
 #' Only the treated
 df_treated <- df %>% filter(z == 1)
