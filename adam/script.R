@@ -12,6 +12,7 @@ remotes::install_github("vdorie/aciccomp/2016")
 
 library(aciccomp2016)
 library(tidyverse)
+library(broom)
 
 #' The 87th dataset simulated from the 50th setting
 df <- dgp_2016(input_2016, 50, 87) %>%
@@ -26,7 +27,7 @@ df <- dgp_2016(input_2016, 50, 87) %>%
 #' * e: the true propensity score
 names(df)
 
-#' Want to the SATT
+#' Want to predict the SATT
 #' * SATT: sample average treatment effect on treated
 #' * SATC: sample average treatement effect on control
 satt_truth <- df %>%
@@ -35,6 +36,8 @@ satt_truth <- df %>%
   filter(z == 0) %>%
   select(sat) %>%
   as.numeric()
+
+e_truth <- df$e
 
 #' A plot to look at confounding
 #' e.g. is the distribution of potential outcomes different depending on assignment
@@ -63,7 +66,7 @@ df <- df %>%
   select(-y.0, -y.1, -mu.0, -mu.1, -e)
 
 #' 1. Regression adjustment
-fit <- glm(y ~ 1 + ., family = "gaussian", data = df)
+fit <- glm(y ~ ., family = "gaussian", data = df)
 
 #' Only the treated
 df_treated <- df %>% filter(z == 1)
@@ -73,5 +76,33 @@ ey1 <- mean(predict(fit, df_treated, type = "response"))
 
 list(
   "regression_adjustment" = ey1 - ey0,
+  "truth" = satt_truth
+)
+
+#' 2. Inverse probability weighting
+
+#' We want to predict if someone is going to be treated or not
+#' This helps us understand if there are differences between the control and treatment groups
+fit_treatment <- glm(z ~ 1 + ., family = binomial(link = "logit"), data = select(df, -y))
+
+df_ipw <- augment_columns(fit_treatment, df, type.predict = "response") %>%
+  #' e is the propensity
+  rename(e = .fitted) %>%
+  #' ipw is the inverse probability weight
+  mutate(ipw = (z / e) + ((1 - z) / (1 - e))) %>%
+  select("z", "y", starts_with("x"), "e", "ipw")
+
+#' This doesn't look great!
+plot(df_ipw$e, e_truth)
+
+fit_ipw <- glm(y ~ -ipw + ., family = "gaussian", data = df_ipw, weights = ipw)
+
+df_ipw_treated <- df_ipw %>% filter(z == 1)
+
+ey0_ipw <- mean(predict(fit_ipw, df_ipw_treated %>% mutate(z = 0), type = "response"))
+ey1_ipw <- mean(predict(fit_ipw, df_ipw_treated, type = "response"))
+
+list(
+  "ipw" = ey1_ipw - ey0_ipw,
   "truth" = satt_truth
 )
