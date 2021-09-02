@@ -15,8 +15,10 @@ library(tidyverse)
 library(broom)
 library(SuperLearner)
 
-#' The 87th dataset simulated from the 50th setting
-df_full <- dgp_2016(input_2016, 50, 87) %>%
+param <- 50
+seed <- 87
+
+df_full <- dgp_2016(input_2016, param, seed) %>%
   as_tibble() %>%
   bind_cols(input_2016)
 
@@ -154,3 +156,18 @@ fit_superlearner <- glm(
 )
 
 compare_to_truth(df_superlearner, fit_superlearner, name = "superlearner")
+
+#' 4. Targetted MLE
+
+#' From: https://ehsanx.github.io/TMLEworkshop/tmle.html#tmle-steps
+#' This looks a bit more involved
+#' Step 1) Transformation of continuous outcome variable
+#' Step 2) Predict from initial outcome modelling: G-computation
+#' Step 3) Predict from propensity score model
+#' Step 4) Estimate clever covariate H
+#' Step 5) Estimate fluctuation parameter
+#' Step 6) Update the initial outcome model prediction based on targeted adjustment of the
+#'         initial predictions using the PS model
+#' Step 7) Find treatment effect estimate
+#' Step 8) Transform back the treatment effect estimate in the original outcome scale
+#' Step 9) Confidence interval estimation based on closed form formula
