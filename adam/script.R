@@ -2,22 +2,26 @@ setwd("adam/")
 
 cbpalette <- c("#56B4E9","#009E73", "#E69F00", "#F0E442","#0072B2","#D55E00","#CC79A7", "#999999")
 
-#' Start by installing the aciccomp2016 R package from Github
-if (require("remotes", quietly = TRUE) == FALSE) {
-  install.packages("remotes")
-  require("remotes")
-}
-
-remotes::install_github("vdorie/aciccomp/2016")
+#' #' Start by installing the aciccomp2016 R package from Github
+#' if (require("remotes", quietly = TRUE) == FALSE) {
+#'   install.packages("remotes")
+#'   require("remotes")
+#' }
+#'
+#' remotes::install_github("vdorie/aciccomp/2016")
 
 library(aciccomp2016)
 library(tidyverse)
 library(broom)
+library(SuperLearner)
 
 #' The 87th dataset simulated from the 50th setting
-df <- dgp_2016(input_2016, 50, 87) %>%
+df_full <- dgp_2016(input_2016, 50, 87) %>%
   as_tibble() %>%
   bind_cols(input_2016)
+
+#' Save a dataset for users who are allergic to R
+write_csv(df_full, "87-50.csv")
 
 #' The columns of df are:
 #' * z: the treatment indicator
@@ -25,25 +29,24 @@ df <- dgp_2016(input_2016, 50, 87) %>%
 #' * y.0, y.1: the potential outcomes
 #' * mu.0, mu.1: the expected potential outcomes
 #' * e: the true propensity score
-names(df)
+names(df_full)
 
 #' Want to predict the SATT
 #' * SATT: sample average treatment effect on treated
-#' * SATC: sample average treatement effect on control
-satt_truth <- df %>%
-  group_by(z) %>%
-  summarise(sat = mean(y.1 - y.0)) %>%
+#' * SATC: sample average treatment effect on control
+satt_truth <- df_full %>%
   filter(z == 0) %>%
-  select(sat) %>%
+  summarise(sat = mean(y.1 - y.0)) %>%
   as.numeric()
 
-e_truth <- df$e
+#' Save the true propensity scores in-case want to compare to them later
+e_truth <- select(df_full, e)
 
 #' A plot to look at confounding
 #' e.g. is the distribution of potential outcomes different depending on assignment
 pdf("87-50.pdf", h = 3, w = 6.25)
 
-df %>%
+df_full %>%
   pivot_longer(
     cols = c("y.0", "y.1"),
     names_prefix = "y.",
@@ -62,47 +65,57 @@ df %>%
 dev.off()
 
 #' Remove the columns that I shouldn't have access to
-df <- df %>%
-  select(-y.0, -y.1, -mu.0, -mu.1, -e)
+df <- select(df_full, -y.0, -y.1, -mu.0, -mu.1, -e)
 
 #' 1. Regression adjustment
 fit <- glm(y ~ ., family = "gaussian", data = df)
 
-#' Only the treated
-df_treated <- df %>% filter(z == 1)
+compare_to_truth <- function(df, fit, name) {
+  df_treated <- filter(df, z == 1)
+  ey0 <- mean(predict(fit, mutate(df_treated, z = 0), type = "response"))
+  ey1 <- mean(predict(fit, df_treated, type = "response"))
+  out <- list(ey1 - ey0, satt_truth)
+  names(out) <- c(paste(name), "truth")
+  return(out)
+}
 
-ey0 <- mean(predict(fit, df_treated %>% mutate(z = 0), type = "response"))
-ey1 <- mean(predict(fit, df_treated, type = "response"))
+compare_to_truth(df, fit, name = "regression")
 
-list(
-  "regression_adjustment" = ey1 - ey0,
-  "truth" = satt_truth
-)
+#' 2. Regression adjustment with propensity scores
 
-#' 2. Inverse probability weighting
-
-#' We want to predict if someone is going to be treated or not
-#' This helps us understand if there are differences between the control and treatment groups
 fit_treatment <- glm(z ~ 1 + ., family = binomial(link = "logit"), data = select(df, -y))
 
-df_ipw <- augment_columns(fit_treatment, df, type.predict = "response") %>%
-  #' e is the propensity
-  rename(e = .fitted) %>%
-  #' ipw is the inverse probability weight
-  mutate(ipw = (z / e) + ((1 - z) / (1 - e))) %>%
-  select("z", "y", starts_with("x"), "e", "ipw")
+df_e <- augment_columns(fit_treatment, df, type.predict = "response") %>%
+  #' e_fitted is the propensity
+  rename(e_fitted = .fitted) %>%
+  select("z", "y", starts_with("x"), "e_fitted")
 
-#' This doesn't look great!
-plot(df_ipw$e, e_truth)
+fit_e <- glm(y ~ ., family = "gaussian", data = df_e)
 
-fit_ipw <- glm(y ~ -ipw + ., family = "gaussian", data = df_ipw, weights = ipw)
+compare_to_truth(df_e, fit_e, name = "regression_propensity")
 
-df_ipw_treated <- df_ipw %>% filter(z == 1)
+#' 3. Inverse probability weighting
 
-ey0_ipw <- mean(predict(fit_ipw, df_ipw_treated %>% mutate(z = 0), type = "response"))
-ey1_ipw <- mean(predict(fit_ipw, df_ipw_treated, type = "response"))
+#' 1) Model the treatment / control exposure to obtain propensity scores
+#'  * Want to predict if someone is going to be treated or not. This helps us understand
+#'    if there are differences between the control and treatment groups
+#'  * Want to look at the distribution of the scores
+#'    * Is there enough overlap?
+#'    * Very close to 0 or 1?
+#' 2) Convert propensity scores to inverse probability weights
+#' 3) Assess covariate balance in weighted sample
+#'   * Want the treatment and control groups to have similar distributions
+#'     over the covariates
+#'   * There is an R package for this "cobalt: Covariate Balance Tables and Plots"
+#' 4) Model the outcome
 
-list(
-  "ipw" = ey1_ipw - ey0_ipw,
-  "truth" = satt_truth
-)
+df_ipw <- df_e %>%
+  mutate(ipw = (z / e_fitted) + ((1 - z) / (1 - e_fitted)))
+
+#' Don't include ipw or e_fitted in the regression equation
+fit_ipw <- glm(y ~ ., family = "gaussian", data = select(df_ipw, -ipw, -e_fitted), weights = df_ipw$ipw)
+
+compare_to_truth(df_ipw, fit_ipw, name = "ipw")
+
+#' 3. Inverse probability weighting (with machine learning methods)
+#' TODO
