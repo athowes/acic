@@ -83,12 +83,10 @@ compare_to_truth(df, fit, name = "regression")
 
 #' 2. Regression adjustment with propensity scores
 
-fit_treatment <- glm(z ~ 1 + ., family = binomial(link = "logit"), data = select(df, -y))
+fit_treatment <- glm(z ~ ., family = binomial(link = "logit"), data = select(df, -y))
 
-df_e <- augment_columns(fit_treatment, df, type.predict = "response") %>%
-  #' e_fitted is the propensity
-  rename(e_fitted = .fitted) %>%
-  select("z", "y", starts_with("x"), "e_fitted")
+#' e_fitted is the propensity
+df_e <- mutate(df, e_fitted = predict(fit_treatment, df, type = "response"))
 
 fit_e <- glm(y ~ ., family = "gaussian", data = df_e)
 
@@ -109,6 +107,7 @@ compare_to_truth(df_e, fit_e, name = "regression_propensity")
 #'   * There is an R package for this "cobalt: Covariate Balance Tables and Plots"
 #' 4) Model the outcome
 
+#' Use the treatment model from 2.
 df_ipw <- df_e %>%
   mutate(ipw = (z / e_fitted) + ((1 - z) / (1 - e_fitted)))
 
@@ -118,4 +117,40 @@ fit_ipw <- glm(y ~ ., family = "gaussian", data = select(df_ipw, -ipw, -e_fitted
 compare_to_truth(df_ipw, fit_ipw, name = "ipw")
 
 #' 3. Inverse probability weighting (with machine learning methods)
-#' TODO
+
+#' Note: could use ML for the treatment model, response model, or both
+#' That said, perhaps it's difficult to find ML methods which work with
+#' weighted likelihoods for the response model (doing IPW)
+
+#' #' Prepare packages required for SuperLearner
+#' #' eXtreme Gradient Boosting
+#' install.packages(
+#'   "xgboost",
+#'   repos = c("http://dmlc.ml/drat/", getOption("repos")),
+#'   type = "source"
+#' )
+
+fit_treatment_superlearner <- SuperLearner(
+  Y = df$z,
+  X = select(df, -z, -y),
+  cvControl = list(V = 3),
+  SL.library = c("SL.glm", "SL.glmnet", "SL.xgboost"),
+  method = "method.NNLS",
+  family = "binomial"
+)
+
+df_superlearner <- df %>%
+  mutate(
+    e_fitted = predict(fit_treatment_superlearner, type = "response")$pred,
+    ipw = (z / e_fitted) + ((1 - z) / (1 - e_fitted))
+  )
+
+#' Don't include ipw or e_fitted in the regression equation
+fit_superlearner <- glm(
+  y ~ .,
+  family = "gaussian",
+  data = select(df_superlearner, -ipw, -e_fitted),
+  weights = df_superlearner$ipw
+)
+
+compare_to_truth(df_superlearner, fit_superlearner, name = "superlearner")
