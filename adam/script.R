@@ -1,6 +1,6 @@
 setwd("adam/")
 
-cbpalette <- c("#56B4E9","#009E73", "#E69F00", "#F0E442","#0072B2","#D55E00","#CC79A7", "#999999")
+#' cbpalette <- c("#56B4E9","#009E73", "#E69F00", "#F0E442","#0072B2","#D55E00","#CC79A7", "#999999")
 
 #' #' Start by installing the aciccomp2016 R package from Github
 #' if (require("remotes", quietly = TRUE) == FALSE) {
@@ -15,23 +15,23 @@ library(tidyverse)
 library(broom)
 library(SuperLearner)
 
-param <- 50
-seed <- 87
+# param <- 50
+# seed <- 87
 
 df_full <- dgp_2016(input_2016, param, seed) %>%
   as_tibble() %>%
   bind_cols(input_2016)
 
-#' Save a dataset for users who are allergic to R
-write_csv(df_full, "87-50.csv")
+#' #' Save a dataset for users who are allergic to R
+#' write_csv(df_full, "87-50.csv")
 
-#' The columns of df are:
-#' * z: the treatment indicator
-#' * y: the response variable
-#' * y.0, y.1: the potential outcomes
-#' * mu.0, mu.1: the expected potential outcomes
-#' * e: the true propensity score
-names(df_full)
+#' #' The columns of df are:
+#' #' * z: the treatment indicator
+#' #' * y: the response variable
+#' #' * y.0, y.1: the potential outcomes
+#' #' * mu.0, mu.1: the expected potential outcomes
+#' #' * e: the true propensity score
+#' names(df_full)
 
 #' Want to predict the SATT
 #' * SATT: sample average treatment effect on treated
@@ -44,45 +44,46 @@ satt_truth <- df_full %>%
 #' Save the true propensity scores in-case want to compare to them later
 e_truth <- select(df_full, e)
 
-#' A plot to look at confounding
-#' e.g. is the distribution of potential outcomes different depending on assignment
-pdf("87-50.pdf", h = 3, w = 6.25)
-
-df_full %>%
-  pivot_longer(
-    cols = c("y.0", "y.1"),
-    names_prefix = "y.",
-    names_to = "potential_outcome",
-    values_to = "value"
-  ) %>%
-  mutate(
-    observed = ifelse(potential_outcome == z, TRUE, FALSE)
-  ) %>%
-  ggplot(aes(x = potential_outcome, y = value, col = observed)) +
-    geom_jitter(alpha = 0.5) +
-    scale_colour_manual(values = c("#D3D3D3", cbpalette[3])) +
-    labs(x = "Control or treatment", y = "Potential outcome", col = "Observed?") +
-    theme_minimal()
-
-dev.off()
+#' Not needed for now
+#' #' A plot to look at confounding
+#' #' e.g. is the distribution of potential outcomes different depending on assignment
+#' pdf("87-50.pdf", h = 3, w = 6.25)
+#'
+#' df_full %>%
+#'   pivot_longer(
+#'     cols = c("y.0", "y.1"),
+#'     names_prefix = "y.",
+#'     names_to = "potential_outcome",
+#'     values_to = "value"
+#'   ) %>%
+#'   mutate(
+#'     observed = ifelse(potential_outcome == z, TRUE, FALSE)
+#'   ) %>%
+#'   ggplot(aes(x = potential_outcome, y = value, col = observed)) +
+#'     geom_jitter(alpha = 0.5) +
+#'     scale_colour_manual(values = c("#D3D3D3", cbpalette[3])) +
+#'     labs(x = "Control or treatment", y = "Potential outcome", col = "Observed?") +
+#'     theme_minimal()
+#'
+#' dev.off()
 
 #' Remove the columns that I shouldn't have access to
 df <- select(df_full, -y.0, -y.1, -mu.0, -mu.1, -e)
 
-# Comparison function
-compare_to_truth <- function(df, fit, name) {
+# Calculate the SATT
+calculate_satt <- function(df, fit, name) {
   df_treated <- filter(df, z == 1)
   ey0 <- mean(predict(fit, mutate(df_treated, z = 0), type = "response"))
   ey1 <- mean(predict(fit, df_treated, type = "response"))
-  out <- list(ey1 - ey0, satt_truth)
-  names(out) <- c(paste(name), "truth")
+  out <- list(ey1 - ey0)
+  names(out) <- c(paste(name))
   return(out)
 }
 
 #' 1. Regression adjustment
 fit <- glm(y ~ ., family = "gaussian", data = df)
 
-compare_to_truth(df, fit, name = "regression")
+(result1 <- calculate_satt(df, fit, name = "regression"))
 
 #' 2. Regression adjustment with propensity scores
 
@@ -93,7 +94,7 @@ df_e <- mutate(df, e_fitted = predict(fit_treatment, df, type = "response"))
 
 fit_e <- glm(y ~ 1 + z + e_fitted, family = "gaussian", data = df_e)
 
-compare_to_truth(df_e, fit_e, name = "regression_propensity")
+(result2 <- calculate_satt(df_e, fit_e, name = "regression_propensity"))
 
 #' 2a. Regression adjustment with oracle propensity scores
 
@@ -101,7 +102,7 @@ df_oracle_e <- mutate(df, e_truth = unlist(e_truth))
 
 fit_oracle_e <- glm(y ~ 1 + z + e_truth, family = "gaussian", data = df_oracle_e)
 
-compare_to_truth(df_oracle_e, fit_oracle_e, name = "regression_oracle_propensity")
+(result2a <- calculate_satt(df_oracle_e, fit_oracle_e, name = "regression_oracle_propensity"))
 
 #' 3. Inverse probability weighting
 
@@ -125,7 +126,7 @@ df_ipw <- df_e %>%
 #' Don't include ipw or e_fitted in the regression equation
 fit_ipw <- glm(y ~ ., family = "gaussian", data = select(df_ipw, -ipw, -e_fitted), weights = df_ipw$ipw)
 
-compare_to_truth(df_ipw, fit_ipw, name = "ipw")
+(result3 <- calculate_satt(df_ipw, fit_ipw, name = "ipw"))
 
 #' 3a. Inverse probability weighting with oracle propensity scores
 
@@ -140,9 +141,9 @@ fit_oracle_ipw <- glm(
   weights = df_oracle_ipw$ipw
 )
 
-compare_to_truth(df_oracle_ipw, fit_oracle_ipw, name = "oracle_ipw")
+(result3a <- calculate_satt(df_oracle_ipw, fit_oracle_ipw, name = "oracle_ipw"))
 
-#' 3. Inverse probability weighting (with machine learning methods)
+#' 4. Inverse probability weighting (with machine learning methods)
 
 #' Note: could use ML for the treatment model, response model, or both
 #' That said, perhaps it's difficult to find ML methods which work with
@@ -179,19 +180,21 @@ fit_superlearner <- glm(
   weights = df_superlearner$ipw
 )
 
-compare_to_truth(df_superlearner, fit_superlearner, name = "superlearner")
+(result4 <- calculate_satt(df_superlearner, fit_superlearner, name = "superlearner"))
 
-#' 4. Targetted MLE
+#' Save to results
 
-#' From: https://ehsanx.github.io/TMLEworkshop/tmle.html#tmle-steps
-#' This looks a bit more involved
-#' Step 1) Transformation of continuous outcome variable
-#' Step 2) Predict from initial outcome modelling: G-computation
-#' Step 3) Predict from propensity score model
-#' Step 4) Estimate clever covariate H
-#' Step 5) Estimate fluctuation parameter
-#' Step 6) Update the initial outcome model prediction based on targeted adjustment of the
-#'         initial predictions using the PS model
-#' Step 7) Find treatment effect estimate
-#' Step 8) Transform back the treatment effect estimate in the original outcome scale
-#' Step 9) Confidence interval estimation based on closed form formula
+dir.create("results")
+
+bind_cols(result1, result2, result2a, result3, result3a, result4) %>%
+  t() %>%
+  as.data.frame() %>%
+  tibble::rownames_to_column("method") %>%
+  rename("satt" = "V1") %>%
+  mutate(
+    truth = satt_truth,
+    error = satt - truth,
+    seed = seed,
+    param = param
+  ) %>%
+  write_csv(paste0("results/result-", seed, "-", param, ".csv"))
