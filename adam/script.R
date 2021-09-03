@@ -69,7 +69,7 @@ dev.off()
 #' Remove the columns that I shouldn't have access to
 df <- select(df_full, -y.0, -y.1, -mu.0, -mu.1, -e)
 
-# 0. Comparison code
+# Comparison function
 compare_to_truth <- function(df, fit, name) {
   df_treated <- filter(df, z == 1)
   ey0 <- mean(predict(fit, mutate(df_treated, z = 0), type = "response"))
@@ -81,8 +81,6 @@ compare_to_truth <- function(df, fit, name) {
 
 #' 1. Regression adjustment
 fit <- glm(y ~ ., family = "gaussian", data = df)
-
-
 
 compare_to_truth(df, fit, name = "regression")
 
@@ -97,12 +95,13 @@ fit_e <- glm(y ~ 1 + z + e_fitted, family = "gaussian", data = df_e)
 
 compare_to_truth(df_e, fit_e, name = "regression_propensity")
 
-#'2a oracle version of 2
-df_true_e <- mutate(df, e_truth = unlist(e_truth) )
+#' 2a. Regression adjustment with oracle propensity scores
 
-oracle_e <- glm(y ~ 1 + z + e_truth, family = "gaussian", data = df_true_e)
+df_oracle_e <- mutate(df, e_truth = unlist(e_truth))
 
-compare_to_truth(df_true_e, oracle_e, name = "regression_true_propensity")
+fit_oracle_e <- glm(y ~ 1 + z + e_truth, family = "gaussian", data = df_oracle_e)
+
+compare_to_truth(df_oracle_e, fit_oracle_e, name = "regression_oracle_propensity")
 
 #' 3. Inverse probability weighting
 
@@ -128,16 +127,20 @@ fit_ipw <- glm(y ~ ., family = "gaussian", data = select(df_ipw, -ipw, -e_fitted
 
 compare_to_truth(df_ipw, fit_ipw, name = "ipw")
 
-#' 3a. Inverse probability weighting (Oracle on prop)
-#'
-#' Use the treatment model from 2.
-df_ipw_oracle <- df_true_e %>%
+#' 3a. Inverse probability weighting with oracle propensity scores
+
+df_oracle_ipw <- df_oracle_e %>%
   mutate(ipw = (z / e_truth) + ((1 - z) / (1 - e_truth)))
 
 #' Don't include ipw or e_fitted in the regression equation
-fit_ipw_oracle <- glm(y ~ ., family = "gaussian", data = select(df_ipw_oracle, -ipw, -e_truth), weights = df_ipw_oracle$ipw)
+fit_oracle_ipw <- glm(
+  y ~ .,
+  family = "gaussian",
+  data = select(df_oracle_ipw, -ipw, -e_truth),
+  weights = df_oracle_ipw$ipw
+)
 
-compare_to_truth(df_ipw_oracle, fit_ipw_oracle, name = "oracle_ipw")
+compare_to_truth(df_oracle_ipw, fit_oracle_ipw, name = "oracle_ipw")
 
 #' 3. Inverse probability weighting (with machine learning methods)
 
