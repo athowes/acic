@@ -10,3 +10,4 @@ for(param in c(30, 40, 50)) {
   }
 }
 
+zip("data", files = "data")
