@@ -1,22 +1,12 @@
-setwd("adam/")
+#' setwd("adam/")
 
 #' cbpalette <- c("#56B4E9","#009E73", "#E69F00", "#F0E442","#0072B2","#D55E00","#CC79A7", "#999999")
 
-#' #' Start by installing the aciccomp2016 R package from Github
-#' if (require("remotes", quietly = TRUE) == FALSE) {
-#'   install.packages("remotes")
-#'   require("remotes")
-#' }
-#'
-#' remotes::install_github("vdorie/aciccomp/2016")
-
-library(aciccomp2016)
-library(tidyverse)
-library(broom)
-library(SuperLearner)
-
 # param <- 50
 # seed <- 87
+
+param <- commandArgs()$param
+seed <- commandArgs()$seed
 
 df_full <- dgp_2016(input_2016, param, seed) %>%
   as_tibble() %>%
