@@ -43,6 +43,6 @@ reg.coef_[0][0]
 # estimate atet with regression with covariates
 from sklearn.linear_model import LinearRegression
 
-reg = LinearRegression().fit(np.concatenate((z[:, None])), y[:, None])
-reg.score(z[:, None], y)
+reg = LinearRegression().fit(np.concatenate((z[:, None], x), 1), y[:, None])
+reg.predict(np.concatenate((z[:, None], x), 1), y)
 reg.coef_[0][0]
