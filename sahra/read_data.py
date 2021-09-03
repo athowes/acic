@@ -11,8 +11,8 @@ from sklearn.preprocessing import OneHotEncoder
 z = data_df.z.values
 y = data_df.y.values
 
-# preprocess covariates
-object_cols = ["x_2", "x_21", "x_24"]
+# one hot encode categorical categories
+object_cols = data_df.columns[(data_df.dtypes == "object")].values
 x = data_df[
     [col for col in data_df.columns if "x_" in col and col not in object_cols]
 ].values
@@ -20,6 +20,13 @@ enc = OneHotEncoder(drop="first", sparse=False)
 x_onehot = enc.fit_transform(data_df[object_cols])
 x = np.concatenate((x, x_onehot), 1)
 
+# scale data
+from sklearn.preprocessing import StandardScaler
+
+scaler = StandardScaler()
+x = scaler.fit(x)
+
+# %%
 # compute true atet
 atet = (data_df["y.1"] - data_df["y.0"])[z == 1].mean()
 print(atet)
